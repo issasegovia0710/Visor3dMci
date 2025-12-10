@@ -1953,7 +1953,7 @@ function App() {
                 }}
               >
                 <img
-                  src="/src/logo-maestria_0006_Capa-0.png"
+                  src="https://visor3dmci.netlify.app/src/logo-maestria_0006_Capa-0.png"
                   alt=""
                   style={{
                     width: 70,
