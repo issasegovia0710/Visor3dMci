@@ -1,0 +1,35 @@
+{
+  "projectName": "prueba 3",
+  "author": "IsaidBaSeg@rsm.com",
+  "date": "2025-12-09",
+  "passwordHash": "15e2b0d3c33891ebb0f1ef609ec419420c20e320ce94c65fbc8c3312448eb225",
+  "position": {
+    "x": -95,
+    "y": 200,
+    "z": -37
+  },
+  "rotation": {
+    "x": 90,
+    "y": 0,
+    "z": 0
+  },
+  "modelFile": "modelo.3MF",
+  "partsMeta": {
+    "0": {
+      "name": "body51237",
+      "notes": "er"
+    },
+    "1": {
+      "name": "body51218",
+      "notes": "hola"
+    },
+    "9": {
+      "name": "cuerpo",
+      "notes": "Cuerpo"
+    },
+    "11": {
+      "name": "body96506",
+      "notes": ""
+    }
+  }
+}

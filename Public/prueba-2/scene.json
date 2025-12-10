@@ -1,0 +1,17 @@
+{
+  "projectName": "prueba 2",
+  "author": "IsaidBaSeg@rsm.com",
+  "date": "2025-12-09",
+  "passwordHash": "03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4",
+  "position": {
+    "x": -452,
+    "y": 16,
+    "z": -179
+  },
+  "rotation": {
+    "x": 90,
+    "y": 0,
+    "z": 0
+  },
+  "modelFile": "modelo.SLDASM"
+}
