@@ -1049,8 +1049,8 @@ function App() {
           meta[p.id] !== undefined
             ? meta[p.id]
             : meta[String(p.id)] !== undefined
-            ? meta[String(p.id)]
-            : null;
+              ? meta[String(p.id)]
+              : null;
 
         if (!m) return p;
 
@@ -1626,7 +1626,7 @@ function App() {
         console.error("Error actualizando transform", data);
         throw new Error(
           data.error ||
-            "No se pudo guardar la posición/rotación en el servidor."
+          "No se pudo guardar la posición/rotación en el servidor."
         );
       }
 
@@ -1692,7 +1692,7 @@ function App() {
       return;
     }
 
-    const url = project.modelUrl; // viene como /public/carpeta/modelo.ext
+    const url = `${API_BASE_URL}${project.modelUrl}`;
     const ext = project.modelFile.split(".").pop().toLowerCase();
 
     if (objectUrlRef.current) {
