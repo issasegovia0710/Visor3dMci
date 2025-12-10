@@ -1938,7 +1938,7 @@ function App() {
                 }}
               >
                 <img
-                  src="/src/logo-maestria_0006_Capa-0.png"
+                  src="../src/logo-maestria_0006_Capa-0.png"
                   alt=""
                   style={{
                     width: 70,
