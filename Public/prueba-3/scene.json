@@ -31,13 +31,27 @@
     },
     "11": {
       "name": "body96506",
-      "notes": ""
+      "notes": "",
+      "color": "#ffffff",
+      "materialPreset": "glass"
     },
     "15": {
       "name": "Bandeja 1",
       "notes": "Bandeja 1",
       "color": "#a3a19e",
       "materialPreset": "metal"
+    },
+    "17": {
+      "name": "body94734",
+      "notes": "",
+      "color": "#21c2c4",
+      "materialPreset": "plastic"
+    },
+    "18": {
+      "name": "body94704",
+      "notes": "",
+      "color": "#2e75d1",
+      "materialPreset": "plastic"
     }
   }
 }

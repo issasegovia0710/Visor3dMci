@@ -11,10 +11,11 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
    Config general
    ============================================================ */
 
+// Base de la API:
+// - En producción: VITE_API_BASE_URL (por ej. https://tu-backend.com)
+// - En local: http://localhost:4000
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 const API_PROJECTS_URL = `${API_BASE_URL}/api/projects`;
-//const API_BASE_URL = "http://visor3dmci.netlify.app";
-
 
 function slugify(str) {
   return (
@@ -767,7 +768,7 @@ function App() {
     camera.position.set(0, 80, 160);
     cameraRef.current = camera;
 
-    // Luces (más fuertes para que no se vea negro)
+    // Luces
     const hemiLight = new THREE.HemisphereLight(0xffffff, 0x111827, 1.3);
     hemiLight.position.set(0, 1, 0);
     scene.add(hemiLight);
@@ -913,6 +914,7 @@ function App() {
           child.material.specular = new THREE.Color(preset.specular);
           child.material.opacity = preset.opacity;
           child.material.transparent = preset.transparent;
+          child.material.side = THREE.DoubleSide;
           child.material.needsUpdate = true;
         }
         child.userData.baseColor = color;
@@ -989,23 +991,29 @@ function App() {
     object.position.y -= minY;
   };
 
+  // Crear capas desde el modelo cargado
   const updatePartsFromRoot = (root) => {
     const newParts = [];
     let index = 0;
 
     root.traverse((child) => {
       if (child.isMesh) {
-        child.userData.partId = index;
+        const partId = index;
+        child.userData.partId = partId;
 
-        const partColor = getPartColor(index);
+        // Color inicial: base del modelo o paleta automática
+        const partColor = modelBaseColor || getPartColor(index);
+        const presetName = "plastic";
+
         child.userData.baseColor = partColor;
+        child.userData.materialPreset = presetName;
 
-        // Usar material Phong coherente con createMaterialForPart
+        // Asegurar material Phong coherente
         if (!child.material || !child.material.isMeshPhongMaterial) {
-          child.material = createMaterialForPart(partColor, "plastic");
+          child.material = createMaterialForPart(partColor, presetName);
         } else {
-          const preset = MATERIAL_PRESETS.plastic;
           child.material.color = new THREE.Color(partColor);
+          const preset = MATERIAL_PRESETS[presetName];
           child.material.shininess = preset.shininess;
           child.material.specular = new THREE.Color(preset.specular);
           child.material.transparent = preset.transparent;
@@ -1015,11 +1023,11 @@ function App() {
         }
 
         newParts.push({
-          id: index,
+          id: partId,
           name: child.name || `Parte ${index + 1}`,
           visible: child.visible !== false,
           color: partColor,
-          materialPreset: "plastic",
+          materialPreset: presetName,
           notes: "",
         });
 
@@ -1030,6 +1038,7 @@ function App() {
     setParts(newParts);
   };
 
+  // Aplicar meta guardada (nombre, notas, color, material) a UI + modelo
   const applyProjectPartsMeta = (project) => {
     if (!project || !project.partsMeta) return;
 
@@ -1042,15 +1051,25 @@ function App() {
             : meta[String(p.id)] !== undefined
             ? meta[String(p.id)]
             : null;
+
         if (!m) return p;
 
-        return {
+        const newPart = {
           ...p,
           name: m.name || p.name,
           notes: m.notes !== undefined ? m.notes : p.notes || "",
           color: m.color || p.color || "#22c55e",
           materialPreset: m.materialPreset || p.materialPreset || "plastic",
         };
+
+        // Muy importante: actualizar la apariencia en el modelo 3D
+        updatePartMeshAppearance(
+          newPart.id,
+          newPart.color,
+          newPart.materialPreset
+        );
+
+        return newPart;
       })
     );
   };
@@ -1396,6 +1415,7 @@ function App() {
         return;
       }
 
+      await loadProjectsFromServer();
       alert("Notas, color y material de la capa guardados.");
     } catch (err) {
       console.error("Error de red al llamar a /parts-meta:", err);
@@ -1442,17 +1462,12 @@ function App() {
           data.error || "No se pudieron guardar las notas pendientes."
         );
       }
-
-      // 👇 recargar proyectos para tener notas al día
-      await loadProjectsFromServer();
-
       alert("Notas pendientes guardadas.");
     } catch (err) {
       console.error(err);
       alert(err.message || "Error al guardar notas pendientes.");
     }
   };
-
 
   /* =========================
      Lógica de proyectos / escenas (API real)
@@ -1938,7 +1953,7 @@ function App() {
                 }}
               >
                 <img
-                  src="../src/logo-maestria_0006_Capa-0.png"
+                  src="/src/logo-maestria_0006_Capa-0.png"
                   alt=""
                   style={{
                     width: 70,
