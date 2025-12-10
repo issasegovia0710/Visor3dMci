@@ -6,6 +6,7 @@ import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader.js";
 import { ThreeMFLoader } from "three/examples/jsm/loaders/3MFLoader.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import Cotizacion from "./cotizaciones";
 
 /* ============================================================
    Config general
@@ -14,7 +15,8 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 // Base de la API:
 // - En producción: VITE_API_BASE_URL (por ej. https://tu-backend.com)
 // - En local: http://localhost:4000
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
 const API_PROJECTS_URL = `${API_BASE_URL}/api/projects`;
 
 function slugify(str) {
@@ -716,6 +718,7 @@ function App() {
   const [pendingNotes, setPendingNotes] = useState("");
 
   const [isMobile, setIsMobile] = useState(false);
+  const [isCotizacionOpen, setIsCotizacionOpen] = useState(false); // ⬅️ NUEVO
 
   // sync ref de partes
   useEffect(() => {
@@ -1049,8 +1052,8 @@ function App() {
           meta[p.id] !== undefined
             ? meta[p.id]
             : meta[String(p.id)] !== undefined
-              ? meta[String(p.id)]
-              : null;
+            ? meta[String(p.id)]
+            : null;
 
         if (!m) return p;
 
@@ -1136,6 +1139,7 @@ function App() {
     setCurrentProjectId(null);
     setPendingNotes("");
     setEditingPartId(null);
+    setIsCotizacionOpen(false); // cerrar cotización si se carga modelo "sueltito"
 
     if (objectUrlRef.current) {
       URL.revokeObjectURL(objectUrlRef.current);
@@ -1514,6 +1518,7 @@ function App() {
 
       await loadProjectsFromServer();
       setCurrentProjectId(data.projectId || null);
+      setIsCotizacionOpen(false);
       alert("Proyecto creado y carpeta generada en /public.");
     } catch (err) {
       console.error(err);
@@ -1527,13 +1532,10 @@ function App() {
     const formData = new FormData();
     formData.append("model", file);
 
-    const resp = await fetch(
-      `${API_PROJECTS_URL}/${projectId}/model`,
-      {
-        method: "PUT",
-        body: formData,
-      }
-    );
+    const resp = await fetch(`${API_PROJECTS_URL}/${projectId}/model`, {
+      method: "PUT",
+      body: formData,
+    });
 
     const text = await resp.text();
     let data;
@@ -1588,6 +1590,7 @@ function App() {
     if (currentProjectId === projectId) {
       setCurrentProjectId(null);
       setPendingNotes("");
+      setIsCotizacionOpen(false);
     }
 
     await loadProjectsFromServer();
@@ -1626,7 +1629,7 @@ function App() {
         console.error("Error actualizando transform", data);
         throw new Error(
           data.error ||
-          "No se pudo guardar la posición/rotación en el servidor."
+            "No se pudo guardar la posición/rotación en el servidor."
         );
       }
 
@@ -1705,6 +1708,7 @@ function App() {
     setCurrentProjectId(project.id);
     setPendingNotes(project.pendingNotes || "");
     setEditingPartId(null);
+    setIsCotizacionOpen(false);
 
     const applyTransformAndMeta = () => {
       setPosition(project.position || { x: 0, y: 0, z: 0 });
@@ -2677,9 +2681,65 @@ function App() {
             3MF. Los STL se ajustan automáticamente al piso (plano y=0) para
             evitar que queden flotando, incluso cuando los mueves o rotas.
           </div>
+
+          {/* =========================
+              Botón COTIZACIÓN (hasta abajo)
+             ========================= */}
+          {hasModel && currentProjectId && (
+            <div
+              style={{
+                marginTop: 8,
+                padding: 10,
+                borderRadius: 14,
+                border: "1px solid #1f2937",
+                background: "rgba(15,23,42,0.95)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 12,
+                  color: "#e5e7eb",
+                }}
+              >
+                Cotización ligada a este proyecto.
+                <div
+                  style={{
+                    fontSize: 11,
+                    color: "#6b7280",
+                  }}
+                >
+                  Se guardará en{" "}
+                  <code>public/&lt;proyecto&gt;/cotizacion.json</code> usando la
+                  contraseña del proyecto.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCotizacionOpen(true)}
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: 999,
+                  border: "1px solid #22c55e",
+                  background:
+                    "linear-gradient(135deg, rgba(34,197,94,0.3), rgba(21,128,61,0.8))",
+                  color: "#ecfdf5",
+                  fontSize: 11,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Abrir cotización
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
+      {/* Modal de proyectos */}
       <ProjectManagerModal
         isMobile={isMobile}
         isOpen={isProjectModalOpen}
@@ -2691,6 +2751,13 @@ function App() {
         onReplaceModel={handleReplaceModel}
         onUpdateTransform={handleUpdateProjectTransform}
         onRenameProject={handleRenameProject}
+      />
+
+      {/* Modal de cotización */}
+      <Cotizacion
+        isOpen={isCotizacionOpen}
+        onClose={() => setIsCotizacionOpen(false)}
+        projectId={currentProjectId}
       />
     </>
   );
