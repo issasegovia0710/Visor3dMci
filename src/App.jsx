@@ -11,7 +11,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
    Config general
    ============================================================ */
 
-const API_PROJECTS_URL = "http://localhost:4000/api/projects";
+const API_PROJECTS_URL = "http://visor3dmci.netlify.app/api/projects";
 
 function slugify(str) {
   return (
