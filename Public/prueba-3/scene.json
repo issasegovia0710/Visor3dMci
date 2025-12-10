@@ -25,11 +25,19 @@
     },
     "9": {
       "name": "cuerpo",
-      "notes": "Cuerpo"
+      "notes": "Cuerpo",
+      "color": "#d9e7df",
+      "materialPreset": "metal"
     },
     "11": {
       "name": "body96506",
       "notes": ""
+    },
+    "15": {
+      "name": "Bandeja 1",
+      "notes": "Bandeja 1",
+      "color": "#a3a19e",
+      "materialPreset": "metal"
     }
   }
 }

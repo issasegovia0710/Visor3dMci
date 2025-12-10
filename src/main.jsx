@@ -7,3 +7,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
     <App />
   </React.StrictMode>
 );
+
+
+
+//const API_PROJECTS_URL = "http://visor3dmci.netlify.app/api/projects";

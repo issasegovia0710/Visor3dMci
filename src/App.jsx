@@ -11,7 +11,10 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
    Config general
    ============================================================ */
 
-const API_PROJECTS_URL = "http://visor3dmci.netlify.app/api/projects";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
+const API_PROJECTS_URL = `${API_BASE_URL}/api/projects`;
+//const API_BASE_URL = "http://visor3dmci.netlify.app";
+
 
 function slugify(str) {
   return (
@@ -1439,12 +1442,17 @@ function App() {
           data.error || "No se pudieron guardar las notas pendientes."
         );
       }
+
+      // 👇 recargar proyectos para tener notas al día
+      await loadProjectsFromServer();
+
       alert("Notas pendientes guardadas.");
     } catch (err) {
       console.error(err);
       alert(err.message || "Error al guardar notas pendientes.");
     }
   };
+
 
   /* =========================
      Lógica de proyectos / escenas (API real)

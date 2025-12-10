@@ -1,527 +1,504 @@
-// server.js
 const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+const fse = require("fs-extra");
 const crypto = require("crypto");
 
-/* ============================
-   Helpers
-============================ */
+const app = express();
+const PORT = process.env.PORT || 4000;
 
-function slugify(str) {
-  return (
-    (str || "proyecto")
-      .toString()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .substring(0, 40) || "proyecto"
-  );
+// Ruta base de API
+const API_BASE = "/api/projects";
+
+// Carpetas
+const DATA_DIR = path.join(__dirname, "data");
+const DB_FILE = path.join(DATA_DIR, "projects.json");
+const PUBLIC_DIR = path.join(__dirname, "public");
+const UPLOADS_DIR = path.join(__dirname, "uploads");
+
+// Asegurar carpetas
+fse.ensureDirSync(DATA_DIR);
+fse.ensureDirSync(PUBLIC_DIR);
+fse.ensureDirSync(UPLOADS_DIR);
+
+// Multer para subir modelos
+const upload = multer({
+  dest: UPLOADS_DIR,
+});
+
+// Middlewares
+app.use(
+  cors({
+    origin: [
+      "http://localhost:5173",             // Vite en local
+      "https://visor3dmci.netlify.app",    // tu dominio en Netlify
+    ],
+  })
+);
+
+app.use(express.json());
+app.use("/public", express.static(PUBLIC_DIR));
+
+/* ============================================================
+   Utilidades de "BD" (archivo JSON) y escena
+   ============================================================ */
+
+function loadDb() {
+  if (!fs.existsSync(DB_FILE)) {
+    return [];
+  }
+  try {
+    const raw = fs.readFileSync(DB_FILE, "utf8");
+    if (!raw.trim()) return [];
+    return JSON.parse(raw);
+  } catch (e) {
+    console.error("Error leyendo DB:", e);
+    return [];
+  }
+}
+
+function saveDb(projects) {
+  fs.writeFileSync(DB_FILE, JSON.stringify(projects, null, 2), "utf8");
 }
 
 function hashPassword(password) {
   return crypto.createHash("sha256").update(password).digest("hex");
 }
 
-/* ============================
-   Configuración básica
-============================ */
-
-const app = express();
-const PORT = process.env.PORT || 4000;
-
-app.use(
-  cors({
-    origin: "http://localhost:5173", // Vite
-  })
-);
-app.use(express.json());
-
-const publicDir = path.join(__dirname, "public");
-
-// servir archivos estáticos de los modelos
-app.use("/public", express.static(publicDir));
-
-// carpeta temporal para subidas
-const uploadTmpDir = path.join(__dirname, "tmp_uploads");
-if (!fs.existsSync(uploadTmpDir)) {
-  fs.mkdirSync(uploadTmpDir, { recursive: true });
+function findProject(projects, id) {
+  return projects.find((p) => String(p.id) === String(id));
 }
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadTmpDir);
-  },
-  filename: (req, file, cb) => {
-    const safeName = Date.now() + "-" + file.originalname.replace(/\s+/g, "_");
-    cb(null, safeName);
-  },
+function writeSceneJson(project) {
+  const dir = path.join(PUBLIC_DIR, project.slug);
+  fse.ensureDirSync(dir);
+
+  const scene = {
+    projectName: project.name,
+    author: project.author || "",
+    date: project.date || "",
+    passwordHash: project.passwordHash,
+    position: project.position || { x: 0, y: 0, z: 0 },
+    rotation: project.rotation || { x: 0, y: 0, z: 0 },
+    modelFile: project.modelFile || "",
+    partsMeta: project.partsMeta || {},
+  };
+
+  const scenePath = path.join(dir, "scene.json");
+  fs.writeFileSync(scenePath, JSON.stringify(scene, null, 2), "utf8");
+}
+
+/* ============================================================
+   Rutas
+   ============================================================ */
+
+/**
+ * GET /api/projects
+ * Lista de proyectos (para el panel de React)
+ */
+app.get(API_BASE, (req, res) => {
+  const projects = loadDb();
+  const out = projects.map((p) => ({
+    id: p.id,
+    name: p.name,
+    author: p.author || "",
+    date: p.date || "",
+    position: p.position || { x: 0, y: 0, z: 0 },
+    rotation: p.rotation || { x: 0, y: 0, z: 0 },
+    modelFile: p.modelFile || "",
+    modelUrl: p.modelFile ? `/public/${p.slug}/${p.modelFile}` : null,
+    partsMeta: p.partsMeta || {},
+    pendingNotes: p.pendingNotes || "",
+  }));
+
+  res.json({ ok: true, projects: out });
 });
 
-const upload = multer({ storage });
-
-/* ============================
-   Utilidades para scene.json
-============================ */
-
-function ensurePublicDir() {
-  if (!fs.existsSync(publicDir)) {
-    fs.mkdirSync(publicDir, { recursive: true });
-  }
-}
-
-function readScene(folder) {
-  ensurePublicDir();
-  const dir = path.join(publicDir, folder);
-  const scenePath = path.join(dir, "scene.json");
-  if (!fs.existsSync(scenePath)) return null;
-  const raw = fs.readFileSync(scenePath, "utf8");
-  const sceneDoc = JSON.parse(raw);
-
-  return {
-    id: folder,
-    name: sceneDoc.projectName || folder,
-    author: sceneDoc.author || "",
-    date: sceneDoc.date || "",
-    position: sceneDoc.position || { x: 0, y: 0, z: 0 },
-    rotation: sceneDoc.rotation || { x: 0, y: 0, z: 0 },
-    passwordHash: sceneDoc.passwordHash || "",
-    modelFile: sceneDoc.modelFile || null,
-    modelUrl: sceneDoc.modelFile ? `/public/${folder}/${sceneDoc.modelFile}` : null,
-    pendingNotes: sceneDoc.pendingNotes || "",
-    partsMeta: sceneDoc.partsMeta || {},
-    _raw: sceneDoc,
-  };
-}
-
-function writeScene(folder, sceneDoc) {
-  ensurePublicDir();
-  const dir = path.join(publicDir, folder);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-  const scenePath = path.join(dir, "scene.json");
-  fs.writeFileSync(scenePath, JSON.stringify(sceneDoc, null, 2), "utf8");
-}
-
-/* ============================
-   POST /api/projects
-   Crea carpeta + modelo + scene.json
-============================ */
-
-app.post("/api/projects", upload.single("model"), (req, res) => {
+/**
+ * POST /api/projects
+ * Crear proyecto nuevo con modelo + scene.json
+ */
+app.post(API_BASE, upload.single("model"), async (req, res) => {
   try {
-    const { projectName, author, date, password, position, rotation } = req.body;
-
-    if (!projectName || !password || !req.file) {
-      return res.status(400).json({
-        ok: false,
-        error: "projectName, password y model son obligatorios.",
-      });
-    }
-
-    const folderSlug = slugify(projectName);
-    ensurePublicDir();
-    const projectDir = path.join(publicDir, folderSlug);
-    fs.mkdirSync(projectDir, { recursive: true });
-
-    // modelo.ext
-    const originalExt = path.extname(req.file.originalname) || "";
-    const modelFileName = "modelo" + originalExt;
-    const finalModelPath = path.join(projectDir, modelFileName);
-    fs.renameSync(req.file.path, finalModelPath);
-
-    // posición / rotación
-    let positionObj = { x: 0, y: 0, z: 0 };
-    let rotationObj = { x: 0, y: 0, z: 0 };
-
-    try {
-      if (position) positionObj = JSON.parse(position);
-    } catch (e) {
-      console.warn("position no es JSON válido, se usa por defecto.");
-    }
-
-    try {
-      if (rotation) rotationObj = JSON.parse(rotation);
-    } catch (e) {
-      console.warn("rotation no es JSON válido, se usa por defecto.");
-    }
-
-    const sceneDoc = {
+    const file = req.file;
+    const {
       projectName,
+      author,
+      password,
+      date,
+      position,
+      rotation,
+      partsMeta,
+    } = req.body;
+
+    if (!file || !projectName || !password) {
+      if (file && file.path) fse.remove(file.path);
+      return res
+        .status(400)
+        .json({ ok: false, error: "Faltan archivo, nombre o contraseña." });
+    }
+
+    const projects = loadDb();
+    const newId = projects.length ? Math.max(...projects.map((p) => p.id)) + 1 : 1;
+
+    // slug de la carpeta
+    const slug = `${newId}-${projectName
+      .toString()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .substring(0, 40) || "proyecto"}`;
+
+    const projectDir = path.join(PUBLIC_DIR, slug);
+    await fse.ensureDir(projectDir);
+
+    // Renombrar archivo a modelo.ext
+    const ext = path.extname(file.originalname) || ".bin";
+    const modelFileName = "modelo" + ext.toLowerCase();
+    const finalPath = path.join(projectDir, modelFileName);
+
+    await fse.move(file.path, finalPath, { overwrite: true });
+
+    let parsedPos = { x: 0, y: 0, z: 0 };
+    let parsedRot = { x: 0, y: 0, z: 0 };
+    let parsedPartsMeta = {};
+
+    if (position) {
+      try {
+        parsedPos = JSON.parse(position);
+      } catch {
+        parsedPos = { x: 0, y: 0, z: 0 };
+      }
+    }
+    if (rotation) {
+      try {
+        parsedRot = JSON.parse(rotation);
+      } catch {
+        parsedRot = { x: 0, y: 0, z: 0 };
+      }
+    }
+    if (partsMeta) {
+      try {
+        parsedPartsMeta = JSON.parse(partsMeta);
+      } catch {
+        parsedPartsMeta = {};
+      }
+    }
+
+    const passwordHash = hashPassword(password);
+
+    const newProject = {
+      id: newId,
+      name: projectName,
       author: author || "",
-      date: date || new Date().toISOString().slice(0, 10),
-      passwordHash: hashPassword(password),
-      position: positionObj,
-      rotation: rotationObj,
+      date: date || "",
+      slug,
+      passwordHash,
       modelFile: modelFileName,
+      position: parsedPos,
+      rotation: parsedRot,
+      partsMeta: parsedPartsMeta,
       pendingNotes: "",
-      partsMeta: {},
     };
 
-    writeScene(folderSlug, sceneDoc);
+    projects.push(newProject);
+    saveDb(projects);
+    writeSceneJson(newProject);
 
-    return res.status(201).json({
-      ok: true,
-      message: "Proyecto creado.",
-      projectId: folderSlug,
-      projectFolder: `public/${folderSlug}`,
-      modelFile: modelFileName,
-      sceneFile: "scene.json",
-    });
+    res.json({ ok: true, projectId: newId });
   } catch (err) {
     console.error("Error en POST /api/projects:", err);
-    return res.status(500).json({
-      ok: false,
-      error: "Error interno del servidor.",
-    });
+    res
+      .status(500)
+      .json({ ok: false, error: "Error interno al crear el proyecto." });
   }
 });
 
-/* ============================
-   GET /api/projects
-   Lista todos los proyectos
-============================ */
+/**
+ * PUT /api/projects/:id/model
+ * Reemplazar sólo el modelo 3D
+ */
+app.put(`${API_BASE}/:id/model`, upload.single("model"), async (req, res) => {
+  const { id } = req.params;
+  const file = req.file;
 
-app.get("/api/projects", (req, res) => {
-  try {
-    ensurePublicDir();
-    const dirs = fs
-      .readdirSync(publicDir, { withFileTypes: true })
-      .filter((d) => d.isDirectory());
-
-    const projects = [];
-    for (const d of dirs) {
-      const scene = readScene(d.name);
-      if (scene) {
-        const { _raw, passwordHash, ...view } = scene;
-        projects.push(view);
-      }
-    }
-
-    return res.json({ ok: true, projects });
-  } catch (err) {
-    console.error("Error en GET /api/projects:", err);
-    return res.status(500).json({ ok: false, error: "Error interno." });
+  if (!file) {
+    return res
+      .status(400)
+      .json({ ok: false, error: "No se envió archivo de modelo." });
   }
-});
 
-/* ============================
-   GET /api/projects/:id
-   Devuelve datos de un proyecto
-============================ */
-
-app.get("/api/projects/:id", (req, res) => {
   try {
-    const scene = readScene(req.params.id);
-    if (!scene) {
-      return res
-        .status(404)
-        .json({ ok: false, error: "Proyecto no encontrado." });
-    }
-    const { _raw, passwordHash, ...view } = scene;
-    return res.json({ ok: true, project: view });
-  } catch (err) {
-    console.error("Error en GET /api/projects/:id:", err);
-    return res.status(500).json({ ok: false, error: "Error interno." });
-  }
-});
-
-/* ============================
-   PUT /api/projects/:id/transform
-   Actualiza posición y rotación
-============================ */
-
-app.put("/api/projects/:id/transform", (req, res) => {
-  try {
-    const folder = req.params.id;
-    const scene = readScene(folder);
-    if (!scene) {
-      return res
-        .status(404)
-        .json({ ok: false, error: "Proyecto no encontrado." });
+    const projects = loadDb();
+    const project = findProject(projects, id);
+    if (!project) {
+      await fse.remove(file.path);
+      return res.status(404).json({ ok: false, error: "Proyecto no encontrado." });
     }
 
-    // si viene contraseña la validamos
-    if (req.body.password) {
-      const hash = hashPassword(req.body.password);
-      if (hash !== scene.passwordHash) {
-        return res
-          .status(403)
-          .json({ ok: false, error: "Contraseña incorrecta." });
-      }
-    }
+    const projectDir = path.join(PUBLIC_DIR, project.slug);
+    await fse.ensureDir(projectDir);
 
-    const scenePath = path.join(publicDir, folder, "scene.json");
-    const sceneDoc = JSON.parse(fs.readFileSync(scenePath, "utf8"));
-
-    const position = req.body.position || scene.position;
-    const rotation = req.body.rotation || scene.rotation;
-
-    sceneDoc.position = position;
-    sceneDoc.rotation = rotation;
-
-    writeScene(folder, sceneDoc);
-
-    const updated = readScene(folder);
-    const { _raw, passwordHash, ...view } = updated;
-    return res.json({ ok: true, project: view });
-  } catch (err) {
-    console.error("Error en PUT /api/projects/:id/transform:", err);
-    return res.status(500).json({ ok: false, error: "Error interno." });
-  }
-});
-
-/* ============================
-   PUT /api/projects/:id/model
-   Reemplaza el modelo
-============================ */
-
-app.put("/api/projects/:id/model", upload.single("model"), (req, res) => {
-  try {
-    const folder = req.params.id;
-    const scene = readScene(folder);
-    if (!scene) {
-      if (req.file) fs.unlinkSync(req.file.path);
-      return res
-        .status(404)
-        .json({ ok: false, error: "Proyecto no encontrado." });
-    }
-    if (!req.file) {
-      return res
-        .status(400)
-        .json({ ok: false, error: "Archivo de modelo requerido." });
-    }
-
-    const dir = path.join(publicDir, folder);
+    const ext = path.extname(file.originalname) || ".bin";
+    const modelFileName = "modelo" + ext.toLowerCase();
+    const finalPath = path.join(projectDir, modelFileName);
 
     // borrar modelo anterior si existe
-    if (scene.modelFile) {
-      const oldPath = path.join(dir, scene.modelFile);
+    if (project.modelFile) {
+      const oldPath = path.join(projectDir, project.modelFile);
       if (fs.existsSync(oldPath)) {
-        fs.unlinkSync(oldPath);
+        await fse.remove(oldPath);
       }
     }
 
-    const ext = path.extname(req.file.originalname) || "";
-    const modelFileName = "modelo" + ext;
-    const finalModelPath = path.join(dir, modelFileName);
-    fs.renameSync(req.file.path, finalModelPath);
+    await fse.move(file.path, finalPath, { overwrite: true });
 
-    const scenePath = path.join(dir, "scene.json");
-    const sceneDoc = JSON.parse(fs.readFileSync(scenePath, "utf8"));
-    sceneDoc.modelFile = modelFileName;
-    writeScene(folder, sceneDoc);
+    project.modelFile = modelFileName;
+    saveDb(projects);
+    writeSceneJson(project);
 
-    const updated = readScene(folder);
-    const { _raw, passwordHash, ...view } = updated;
-    return res.json({
-      ok: true,
-      project: view,
-      message: "Modelo reemplazado.",
-    });
+    res.json({ ok: true });
   } catch (err) {
     console.error("Error en PUT /api/projects/:id/model:", err);
-    return res.status(500).json({ ok: false, error: "Error interno." });
+    if (file && file.path) {
+      await fse.remove(file.path);
+    }
+    res
+      .status(500)
+      .json({ ok: false, error: "Error interno al reemplazar el modelo." });
   }
 });
 
-/* ============================
-   PUT /api/projects/:id/rename
-   Cambia solo el nombre del proyecto
-============================ */
+/**
+ * PUT /api/projects/:id/transform
+ * Actualizar posición / rotación
+ */
+app.put(`${API_BASE}/:id/transform`, (req, res) => {
+  const { id } = req.params;
+  const { position, rotation, password } = req.body || {};
 
-app.put("/api/projects/:id/rename", (req, res) => {
+  if (!password) {
+    return res
+      .status(400)
+      .json({ ok: false, error: "La contraseña es obligatoria." });
+  }
+
+  const projects = loadDb();
+  const project = findProject(projects, id);
+  if (!project) {
+    return res.status(404).json({ ok: false, error: "Proyecto no encontrado." });
+  }
+
+  const hash = hashPassword(password);
+  if (hash !== project.passwordHash) {
+    return res.status(403).json({ ok: false, error: "Contraseña incorrecta." });
+  }
+
+  project.position = position || { x: 0, y: 0, z: 0 };
+  project.rotation = rotation || { x: 0, y: 0, z: 0 };
+
+  saveDb(projects);
+  writeSceneJson(project);
+
+  res.json({ ok: true });
+});
+
+/**
+ * PUT /api/projects/:id/rename
+ * Renombrar proyecto (y carpeta)
+ */
+app.put(`${API_BASE}/:id/rename`, async (req, res) => {
+  const { id } = req.params;
+  const { name, password } = req.body || {};
+
+  if (!name || !password) {
+    return res
+      .status(400)
+      .json({ ok: false, error: "Nombre y contraseña son obligatorios." });
+  }
+
+  const projects = loadDb();
+  const project = findProject(projects, id);
+  if (!project) {
+    return res.status(404).json({ ok: false, error: "Proyecto no encontrado." });
+  }
+
+  const hash = hashPassword(password);
+  if (hash !== project.passwordHash) {
+    return res.status(403).json({ ok: false, error: "Contraseña incorrecta." });
+  }
+
+  const oldSlug = project.slug;
+  const newSlug = `${project.id}-${name
+    .toString()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .substring(0, 40) || "proyecto"}`;
+
+  const oldDir = path.join(PUBLIC_DIR, oldSlug);
+  const newDir = path.join(PUBLIC_DIR, newSlug);
+
   try {
-    const folder = req.params.id;
-    const scene = readScene(folder);
-    if (!scene) {
-      return res
-        .status(404)
-        .json({ ok: false, error: "Proyecto no encontrado." });
+    if (fs.existsSync(oldDir)) {
+      await fse.move(oldDir, newDir, { overwrite: true });
+    } else {
+      await fse.ensureDir(newDir);
     }
 
-    const { name, password } = req.body || {};
-    if (!name || !password) {
-      return res
-        .status(400)
-        .json({ ok: false, error: "name y password son obligatorios." });
-    }
+    project.name = name;
+    project.slug = newSlug;
 
-    const hash = hashPassword(password);
-    if (hash !== scene.passwordHash) {
-      return res
-        .status(403)
-        .json({ ok: false, error: "Contraseña incorrecta." });
-    }
+    saveDb(projects);
+    writeSceneJson(project);
 
-    const scenePath = path.join(publicDir, folder, "scene.json");
-    const sceneDoc = JSON.parse(fs.readFileSync(scenePath, "utf8"));
-    sceneDoc.projectName = name;
-    writeScene(folder, sceneDoc);
-
-    const updated = readScene(folder);
-    const { _raw, passwordHash, ...view } = updated;
-    return res.json({ ok: true, project: view, message: "Proyecto renombrado." });
+    res.json({ ok: true });
   } catch (err) {
-    console.error("Error en PUT /api/projects/:id/rename:", err);
-    return res.status(500).json({ ok: false, error: "Error interno." });
+    console.error("Error al renombrar proyecto/carpeta:", err);
+    res
+      .status(500)
+      .json({ ok: false, error: "Error interno al renombrar el proyecto." });
   }
 });
 
-/* ============================
-   PUT /api/projects/:id/notes
-   Guarda notas generales del proyecto
-============================ */
+/**
+ * PUT /api/projects/:id/notes
+ * Guardar notas pendientes del proyecto
+ */
+app.put(`${API_BASE}/:id/notes`, (req, res) => {
+  const { id } = req.params;
+  const { notes, password } = req.body || {};
 
-app.put("/api/projects/:id/notes", (req, res) => {
+  if (!password) {
+    return res
+      .status(400)
+      .json({ ok: false, error: "La contraseña es obligatoria." });
+  }
+
+  const projects = loadDb();
+  const project = findProject(projects, id);
+  if (!project) {
+    return res.status(404).json({ ok: false, error: "Proyecto no encontrado." });
+  }
+
+  const hash = hashPassword(password);
+  if (hash !== project.passwordHash) {
+    return res.status(403).json({ ok: false, error: "Contraseña incorrecta." });
+  }
+
+  project.pendingNotes = notes || "";
+
+  saveDb(projects);
+  writeSceneJson(project);
+
+  res.json({ ok: true });
+});
+
+/**
+ * PUT /api/projects/:id/parts-meta
+ * Guardar metadata de UNA capa/pieza: nombre, notas, color, materialPreset
+ */
+app.put(`${API_BASE}/:id/parts-meta`, (req, res) => {
+  const { id } = req.params;
+  const { partId, name, notes, color, materialPreset, password } = req.body || {};
+
+  if (typeof partId === "undefined") {
+    return res
+      .status(400)
+      .json({ ok: false, error: "partId es obligatorio." });
+  }
+  if (!password) {
+    return res
+      .status(400)
+      .json({ ok: false, error: "La contraseña es obligatoria." });
+  }
+
+  const projects = loadDb();
+  const project = findProject(projects, id);
+  if (!project) {
+    return res.status(404).json({ ok: false, error: "Proyecto no encontrado." });
+  }
+
+  const hash = hashPassword(password);
+  if (hash !== project.passwordHash) {
+    return res.status(403).json({ ok: false, error: "Contraseña incorrecta." });
+  }
+
+  if (!project.partsMeta) project.partsMeta = {};
+
+  // usamos la clave como string para ser consistentes
+  const key = String(partId);
+  const prev = project.partsMeta[key] || {};
+
+  project.partsMeta[key] = {
+    name: name !== undefined ? name : prev.name || "",
+    notes: notes !== undefined ? notes : prev.notes || "",
+    color: color !== undefined ? color : prev.color || "#22c55e",
+    materialPreset:
+      materialPreset !== undefined ? materialPreset : prev.materialPreset || "plastic",
+  };
+
+  saveDb(projects);
+  writeSceneJson(project);
+
+  res.json({ ok: true });
+});
+
+/**
+ * DELETE /api/projects/:id
+ * Eliminar proyecto y carpeta
+ */
+app.delete(`${API_BASE}/:id`, async (req, res) => {
+  const { id } = req.params;
+  const { password } = req.body || {};
+
+  if (!password) {
+    return res
+      .status(400)
+      .json({ ok: false, error: "La contraseña es obligatoria." });
+  }
+
+  const projects = loadDb();
+  const projectIndex = projects.findIndex((p) => String(p.id) === String(id));
+
+  if (projectIndex === -1) {
+    return res.status(404).json({ ok: false, error: "Proyecto no encontrado." });
+  }
+
+  const project = projects[projectIndex];
+  const hash = hashPassword(password);
+  if (hash !== project.passwordHash) {
+    return res.status(403).json({ ok: false, error: "Contraseña incorrecta." });
+  }
+
+  const projectDir = path.join(PUBLIC_DIR, project.slug);
+
   try {
-    const folder = req.params.id;
-    const scene = readScene(folder);
-    if (!scene) {
-      return res
-        .status(404)
-        .json({ ok: false, error: "Proyecto no encontrado." });
+    if (fs.existsSync(projectDir)) {
+      await fse.remove(projectDir);
     }
+    projects.splice(projectIndex, 1);
+    saveDb(projects);
 
-    const { notes, password } = req.body || {};
-    if (typeof notes !== "string" || !password) {
-      return res.status(400).json({
-        ok: false,
-        error: "notes (string) y password son obligatorios.",
-      });
-    }
-
-    const hash = hashPassword(password);
-    if (hash !== scene.passwordHash) {
-      return res
-        .status(403)
-        .json({ ok: false, error: "Contraseña incorrecta." });
-    }
-
-    const scenePath = path.join(publicDir, folder, "scene.json");
-    const sceneDoc = JSON.parse(fs.readFileSync(scenePath, "utf8"));
-    sceneDoc.pendingNotes = notes;
-    writeScene(folder, sceneDoc);
-
-    const updated = readScene(folder);
-    const { _raw, passwordHash, ...view } = updated;
-    return res.json({ ok: true, project: view, message: "Notas guardadas." });
+    res.json({ ok: true });
   } catch (err) {
-    console.error("Error en PUT /api/projects/:id/notes:", err);
-    return res.status(500).json({ ok: false, error: "Error interno." });
+    console.error("Error al eliminar proyecto/carpeta:", err);
+    res
+      .status(500)
+      .json({ ok: false, error: "Error interno al eliminar el proyecto." });
   }
 });
 
-/* ============================
-   PUT /api/projects/:id/parts-meta
-   Guarda nombre, notas, color y material de una pieza
-============================ */
-
-app.put("/api/projects/:id/parts-meta", (req, res) => {
-  try {
-    console.log("PUT /api/projects/:id/parts-meta llamado");
-    const folder = req.params.id;
-    const scene = readScene(folder);
-    if (!scene) {
-      return res
-        .status(404)
-        .json({ ok: false, error: "Proyecto no encontrado." });
-    }
-
-    const { partId, name, notes, color, materialPreset, password } = req.body || {};
-    if (partId === undefined || !password) {
-      return res.status(400).json({
-        ok: false,
-        error: "partId y password son obligatorios.",
-      });
-    }
-
-    const hash = hashPassword(password);
-    if (hash !== scene.passwordHash) {
-      return res
-        .status(403)
-        .json({ ok: false, error: "Contraseña incorrecta." });
-    }
-
-    const scenePath = path.join(publicDir, folder, "scene.json");
-    const sceneDoc = JSON.parse(fs.readFileSync(scenePath, "utf8"));
-
-    if (!sceneDoc.partsMeta) sceneDoc.partsMeta = {};
-
-    const key = String(partId);
-    const oldMeta = sceneDoc.partsMeta[key] || {};
-
-    sceneDoc.partsMeta[key] = {
-      name: name !== undefined ? name : oldMeta.name || "",
-      notes: notes !== undefined ? notes : oldMeta.notes || "",
-      color: color !== undefined ? color : oldMeta.color || "#22c55e",
-      materialPreset:
-        materialPreset !== undefined ? materialPreset : oldMeta.materialPreset || "plastic",
-    };
-
-    writeScene(folder, sceneDoc);
-
-    const updated = readScene(folder);
-    const { _raw, passwordHash, ...view } = updated;
-    return res.json({
-      ok: true,
-      project: view,
-      message: "Metadatos de pieza guardados.",
-    });
-  } catch (err) {
-    console.error("Error en PUT /api/projects/:id/parts-meta:", err);
-    return res.status(500).json({ ok: false, error: "Error interno." });
-  }
-});
-
-/* ============================
-   DELETE /api/projects/:id
-   Borra carpeta si contraseña coincide
-============================ */
-
-app.delete("/api/projects/:id", (req, res) => {
-  try {
-    const folder = req.params.id;
-    const scene = readScene(folder);
-    if (!scene) {
-      return res
-        .status(404)
-        .json({ ok: false, error: "Proyecto no encontrado." });
-    }
-
-    const { password } = req.body || {};
-    if (!password) {
-      return res
-        .status(400)
-        .json({ ok: false, error: "Contraseña requerida." });
-    }
-
-    const hash = hashPassword(password);
-    if (hash !== scene.passwordHash) {
-      return res
-        .status(403)
-        .json({ ok: false, error: "Contraseña incorrecta." });
-    }
-
-    const projectDir = path.join(publicDir, folder);
-    fs.rmSync(projectDir, { recursive: true, force: true });
-
-    return res.json({ ok: true, message: "Proyecto eliminado." });
-  } catch (err) {
-    console.error("Error en DELETE /api/projects/:id:", err);
-    return res.status(500).json({ ok: false, error: "Error interno." });
-  }
-});
-
-/* ============================
-   Arrancar servidor
-============================ */
+/* ============================================================
+   Arranque del servidor
+   ============================================================ */
 
 app.listen(PORT, () => {
-  console.log(`API corriendo en http://localhost:${PORT}`);
+  console.log(`Servidor de proyectos 3D escuchando en http://localhost:${PORT}`);
 });
