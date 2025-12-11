@@ -1686,58 +1686,63 @@ function App() {
     }
   };
 
-  const handleLoadProject = (projectId) => {
-    const project = projects.find((p) => p.id === projectId);
-    if (!project) return;
+const handleLoadProject = (projectId) => {
+  const project = projects.find((p) => p.id === projectId);
+  if (!project) return;
 
-    if (!project.modelFile || !project.modelUrl) {
-      alert("Este proyecto no tiene modelo asociado.");
-      return;
-    }
+  if (!project.modelFile || !project.modelUrl) {
+    alert("Este proyecto no tiene modelo asociado.");
+    return;
+  }
 
-    const url = `${API_BASE_URL}${project.modelUrl}`;
-    const ext = project.modelFile.split(".").pop().toLowerCase();
+  // ✅ Si la URL ya empieza con http/https (Supabase), NO le pegamos API_BASE_URL
+  const isAbsolute = /^https?:\/\//i.test(project.modelUrl);
+  const url = isAbsolute
+    ? project.modelUrl
+    : `${API_BASE_URL}${project.modelUrl}`;
 
-    if (objectUrlRef.current) {
-      URL.revokeObjectURL(objectUrlRef.current);
-      objectUrlRef.current = null;
-    }
+  const ext = project.modelFile.split(".").pop().toLowerCase();
 
-    setModelName(project.modelFile);
-    modelTypeRef.current = ext;
-    setCurrentProjectId(project.id);
-    setPendingNotes(project.pendingNotes || "");
-    setEditingPartId(null);
-    setIsCotizacionOpen(false);
+  if (objectUrlRef.current) {
+    URL.revokeObjectURL(objectUrlRef.current);
+    objectUrlRef.current = null;
+  }
 
-    const applyTransformAndMeta = () => {
-      setPosition(project.position || { x: 0, y: 0, z: 0 });
-      setRotation(project.rotation || { x: 0, y: 0, z: 0 });
-      applyProjectPartsMeta(project);
-    };
+  setModelName(project.modelFile);
+  modelTypeRef.current = ext;
+  setCurrentProjectId(project.id);
+  setPendingNotes(project.pendingNotes || "");
+  setEditingPartId(null);
 
-    switch (ext) {
-      case "stl":
-        loadSTL(url, applyTransformAndMeta);
-        break;
-      case "obj":
-        loadOBJ(url, applyTransformAndMeta);
-        break;
-      case "gltf":
-      case "glb":
-        loadGLTF(url, applyTransformAndMeta);
-        break;
-      case "ply":
-        loadPLY(url, applyTransformAndMeta);
-        break;
-      case "3mf":
-        load3MF(url, applyTransformAndMeta);
-        break;
-      default:
-        alert("Formato no soportado en este proyecto.");
-        break;
-    }
+  const applyTransformAndMeta = () => {
+    setPosition(project.position || { x: 0, y: 0, z: 0 });
+    setRotation(project.rotation || { x: 0, y: 0, z: 0 });
+    applyProjectPartsMeta(project);
   };
+
+  switch (ext) {
+    case "stl":
+      loadSTL(url, applyTransformAndMeta);
+      break;
+    case "obj":
+      loadOBJ(url, applyTransformAndMeta);
+      break;
+    case "gltf":
+    case "glb":
+      loadGLTF(url, applyTransformAndMeta);
+      break;
+    case "ply":
+      loadPLY(url, applyTransformAndMeta);
+      break;
+    case "3mf":
+      load3MF(url, applyTransformAndMeta);
+      break;
+    default:
+      alert("Formato no soportado en este proyecto.");
+      break;
+  }
+};
+
 
   /* =========================
      UI
