@@ -10,6 +10,7 @@
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^5.2.1",
+    "firebase": "^12.6.0",
     "multer": "^2.0.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -17,7 +18,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.0.0",
-    "vite": "^5.0.0",
-    "concurrently": "^9.0.0"
+    "concurrently": "^9.0.0",
+    "vite": "^5.0.0"
   }
 }
